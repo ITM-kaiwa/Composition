@@ -1,0 +1,551 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  LESSON_COUNT,
+  MINNA_SENTENCES,
+  lessonLabel,
+  sentenceText,
+  type SentenceEntry,
+} from "@/lib/sentenceBattleData";
+import { downloadSentenceList } from "@/lib/downloadSentenceList";
+
+const TOTAL_ROUNDS = 5;
+const PLAYER_MAX_HP = 3;
+
+interface Enemy {
+  name: string;
+  emoji: string;
+}
+
+const ENEMIES: Enemy[] = [
+  { name: "スライム", emoji: "🟢" },
+  { name: "コウモリ", emoji: "🦇" },
+  { name: "ゴブリン", emoji: "👺" },
+  { name: "ゴースト", emoji: "👻" },
+  { name: "オーガ", emoji: "👹" },
+  { name: "クモ", emoji: "🕷️" },
+  { name: "オオカミ", emoji: "🐺" },
+];
+
+const BOSS: Enemy = { name: "まおう", emoji: "😈" };
+
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+interface Tile {
+  key: string;
+  text: string;
+}
+
+function buildTiles(entry: SentenceEntry): Tile[] {
+  return entry.tiles.map((text, i) => ({ key: `${entry.id}-${i}`, text }));
+}
+
+type Phase = "battle" | "result" | "victory" | "defeat";
+
+interface DragInfo {
+  key: string;
+  text: string;
+  x: number;
+  y: number;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+  from: "bank" | number; // "bank" or the slot index it was dragged from
+}
+
+export default function SentenceBattleGame() {
+  const [lessonChoice, setLessonChoice] = useState(0); // 0 = random across all lessons
+  const [round, setRound] = useState(1);
+  const [enemy, setEnemy] = useState<Enemy>(ENEMIES[0]);
+  const [enemyHp, setEnemyHp] = useState(TOTAL_ROUNDS);
+  const [playerHp, setPlayerHp] = useState(PLAYER_MAX_HP);
+  const [phase, setPhase] = useState<Phase>("battle");
+  const [current, setCurrent] = useState<SentenceEntry | null>(null);
+  const [bank, setBank] = useState<Tile[]>([]);
+  const [slots, setSlots] = useState<(Tile | null)[]>([]);
+  const [lastOutcome, setLastOutcome] = useState<"success" | "fail" | null>(null);
+  const [enemyHit, setEnemyHit] = useState(false);
+  const [log, setLog] = useState<string>("てきが　あらわれた！");
+  const lastIdRef = useRef<string | null>(null);
+
+  const [drag, setDrag] = useState<DragInfo | null>(null);
+  const dragRef = useRef<DragInfo | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+
+  const pool = useMemo(() => {
+    if (lessonChoice === 0) return MINNA_SENTENCES;
+    return MINNA_SENTENCES.filter((s) => s.lesson === lessonChoice);
+  }, [lessonChoice]);
+
+  const pickSentence = useCallback(
+    (candidates: SentenceEntry[]): SentenceEntry | null => {
+      if (candidates.length === 0) return null;
+      if (candidates.length === 1) return candidates[0];
+      let pick = candidates[Math.floor(Math.random() * candidates.length)];
+      let guard = 0;
+      while (pick.id === lastIdRef.current && guard < 5) {
+        pick = candidates[Math.floor(Math.random() * candidates.length)];
+        guard++;
+      }
+      return pick;
+    },
+    []
+  );
+
+  const startRound = useCallback(
+    (roundNum: number) => {
+      const entry = pickSentence(pool);
+      lastIdRef.current = entry?.id ?? null;
+      setCurrent(entry);
+      setBank(entry ? shuffle(buildTiles(entry)) : []);
+      setSlots(entry ? entry.tiles.map(() => null) : []);
+      setLastOutcome(null);
+      setPhase("battle");
+      const e = roundNum >= TOTAL_ROUNDS ? BOSS : ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
+      if (roundNum === 1) {
+        setEnemy(e);
+        setEnemyHp(TOTAL_ROUNDS);
+      }
+      setLog(entry ? "じゅもんの　ことばが　ちらばった！　ならびかえて　じゅもんを　となえよう！" : "この課の文がありません。");
+    },
+    [pool, pickSentence]
+  );
+
+  const startBattle = useCallback(() => {
+    setRound(1);
+    setPlayerHp(PLAYER_MAX_HP);
+    setEnemyHp(TOTAL_ROUNDS);
+    setEnemy(ENEMIES[Math.floor(Math.random() * ENEMIES.length)]);
+    lastIdRef.current = null;
+    startRound(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool]);
+
+  // Restart the battle whenever the eligible sentence pool changes (lesson switch).
+  useEffect(() => {
+    startBattle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool]);
+
+  function returnAllToBank() {
+    if (!current) return;
+    setBank(shuffle(buildTiles(current)));
+    setSlots(current.tiles.map(() => null));
+  }
+
+  function placeTile(tile: Tile, fromBank: boolean, fromSlotIndex: number | undefined, targetSlot: number | null) {
+    setSlots((prevSlots) => {
+      const nextSlots = [...prevSlots];
+      // Pull the tile out of its origin first.
+      if (!fromBank && fromSlotIndex != null) nextSlots[fromSlotIndex] = null;
+
+      if (targetSlot != null && nextSlots[targetSlot] == null) {
+        nextSlots[targetSlot] = tile;
+        setBank((prevBank) => prevBank.filter((t) => t.key !== tile.key));
+      } else {
+        // No valid empty slot under the pointer -> tile goes back to the bank.
+        setBank((prevBank) => (prevBank.some((t) => t.key === tile.key) ? prevBank : [...prevBank, tile]));
+      }
+      return nextSlots;
+    });
+  }
+
+  function findSlotIndexAtPoint(x: number, y: number): number | null {
+    const el = document.elementFromPoint(x, y);
+    const slotEl = el?.closest<HTMLElement>("[data-slot-index]");
+    if (!slotEl) return null;
+    const idx = Number(slotEl.dataset.slotIndex);
+    return Number.isNaN(idx) ? null : idx;
+  }
+
+  function isOverBank(x: number, y: number): boolean {
+    const el = document.elementFromPoint(x, y);
+    return Boolean(el?.closest("[data-bank-area]"));
+  }
+
+  const onPointerMove = useCallback((e: PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const next = { ...d, x: e.clientX, y: e.clientY };
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
+
+  const onPointerUp = useCallback(
+    (e: PointerEvent) => {
+      const d = dragRef.current;
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      dragRef.current = null;
+      setDrag(null);
+      if (!d) return;
+
+      const moved = Math.abs(e.clientX - d.startX) > 5 || Math.abs(e.clientY - d.startY) > 5;
+      const targetSlot = findSlotIndexAtPoint(e.clientX, e.clientY);
+      const overBank = isOverBank(e.clientX, e.clientY);
+
+      if (!moved) return; // treated as a click/tap; the element's own onClick handles it
+
+      const tile: Tile = { key: d.key, text: d.text };
+      if (overBank) {
+        if (d.from !== "bank") {
+          setSlots((prev) => {
+            const copy = [...prev];
+            if (typeof d.from === "number") copy[d.from] = null;
+            return copy;
+          });
+          setBank((prev) => (prev.some((t) => t.key === tile.key) ? prev : [...prev, tile]));
+        }
+        return;
+      }
+      placeTile(tile, d.from === "bank", typeof d.from === "number" ? d.from : undefined, targetSlot);
+    },
+    [onPointerMove]
+  );
+
+  function startDrag(e: React.PointerEvent, tile: Tile, from: "bank" | number, rect: DOMRect) {
+    const info: DragInfo = {
+      key: tile.key,
+      text: tile.text,
+      x: e.clientX,
+      y: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      from,
+    };
+    dragRef.current = info;
+    setDrag(info);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }
+
+  function onBankTileClick(tile: Tile) {
+    // Functional updater: multiple clicks landing in the same React batch
+    // (fast taps, programmatic clicks) must each see the previous click's
+    // result, not a stale `slots` snapshot from render time.
+    setSlots((prevSlots) => {
+      const emptyIndex = prevSlots.findIndex((s) => s == null);
+      if (emptyIndex === -1) return prevSlots;
+      const nextSlots = [...prevSlots];
+      nextSlots[emptyIndex] = tile;
+      return nextSlots;
+    });
+    setBank((prev) => prev.filter((t) => t.key !== tile.key));
+  }
+
+  function onSlotTileClick(index: number) {
+    const tile = slots[index];
+    if (!tile) return;
+    setSlots((prevSlots) => {
+      const nextSlots = [...prevSlots];
+      nextSlots[index] = null;
+      return nextSlots;
+    });
+    setBank((prev) => [...prev, tile]);
+  }
+
+  const allFilled = current != null && slots.every((s) => s != null) && slots.length > 0;
+
+  function handleCast() {
+    if (!current || !allFilled) return;
+    const built = slots.map((s) => s!.text);
+    const correct = built.join("") === current.tiles.join("");
+
+    if (correct) {
+      const nextHp = Math.max(0, enemyHp - 1);
+      setEnemyHp(nextHp);
+      setEnemyHit(true);
+      setTimeout(() => setEnemyHit(false), 400);
+      setLastOutcome("success");
+      setLog(`せいこう！「${sentenceText(current)}」　てきに　ダメージを　あたえた！`);
+      if (nextHp <= 0) {
+        setPhase("victory");
+        return;
+      }
+    } else {
+      const nextHp = Math.max(0, playerHp - 1);
+      setPlayerHp(nextHp);
+      setLastOutcome("fail");
+      setLog(`しっぱい…　じゅもんが　みだれた。ただしい　文は「${sentenceText(current)}」でした。`);
+      if (nextHp <= 0) {
+        setPhase("defeat");
+        return;
+      }
+    }
+    setPhase("result");
+  }
+
+  function handleNext() {
+    const nextRound = round + 1;
+    setRound(nextRound);
+    startRound(nextRound);
+  }
+
+  const enemyHpPct = (enemyHp / TOTAL_ROUNDS) * 100;
+
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      {/* Controls */}
+      <div className="mb-3 flex flex-wrap items-center justify-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-sand-600">
+          <span className="font-medium">課をえらぶ:</span>
+          <select
+            value={lessonChoice}
+            onChange={(e) => setLessonChoice(Number(e.target.value))}
+            className="btn-press rounded-full border border-sand-300 bg-sand-50 px-3 py-1.5 text-sm text-sand-700 shadow-inner focus:outline-none focus:ring-2 focus:ring-sand-400"
+          >
+            <option value={0}>ランダム（全課）</option>
+            <optgroup label="Vol.1 (N5) 第1課〜25課">
+              {Array.from({ length: 25 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {lessonLabel(n)}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Vol.2 (N4) 第26課〜50課">
+              {Array.from({ length: LESSON_COUNT - 25 }, (_, i) => i + 26).map((n) => (
+                <option key={n} value={n}>
+                  {lessonLabel(n)}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => downloadSentenceList(MINNA_SENTENCES)}
+          className="btn-press rounded-full border border-sand-300 bg-sand-50 px-3 py-1.5 text-xs font-semibold text-sand-600 shadow-inner hover:bg-sand-200"
+        >
+          文リストをダウンロード (CSV)
+        </button>
+      </div>
+
+      {MINNA_SENTENCES.length === 0 && (
+        <div className="mx-auto max-w-md rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center text-sand-600 shadow-card">
+          文データがまだありません。
+        </div>
+      )}
+
+      {MINNA_SENTENCES.length > 0 && pool.length === 0 && (
+        <div className="mx-auto max-w-md rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center text-sand-600 shadow-card">
+          この課の文が見つかりません。
+        </div>
+      )}
+
+      {pool.length > 0 && (
+        <>
+          {/* Battle stage */}
+          <div className="rounded-3xl border-4 border-kanjibrown/40 bg-gradient-to-b from-[#1b2440] to-[#3a2d55] p-4 shadow-card sm:p-6">
+            <div className="mb-2 flex items-center justify-between text-xs font-semibold text-lemon-200">
+              <span>
+                ラウンド {round}/{TOTAL_ROUNDS}
+              </span>
+              <span className="flex items-center gap-1">
+                {Array.from({ length: PLAYER_MAX_HP }, (_, i) => (
+                  <span key={i}>{i < playerHp ? "❤️" : "🖤"}</span>
+                ))}
+              </span>
+            </div>
+
+            {/* Enemy */}
+            <div className="flex flex-col items-center py-4">
+              <p className="mb-1 text-sm font-bold text-lemon-100">
+                {enemy.name}
+                {round >= TOTAL_ROUNDS && enemy.name === BOSS.name ? "（ラスボス）" : ""}
+              </p>
+              <div
+                className={`text-7xl transition-transform duration-150 ${
+                  enemyHit ? "scale-125 drop-shadow-[0_0_18px_rgba(255,80,80,0.9)]" : ""
+                }`}
+              >
+                {enemy.emoji}
+              </div>
+              <div className="mt-2 h-3 w-56 overflow-hidden rounded-full bg-black/40">
+                <div
+                  className="h-full bg-gradient-to-r from-leaf-400 to-leaf-300 transition-all duration-300"
+                  style={{ width: `${enemyHpPct}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Message log, DQ-style */}
+            <div className="mx-auto mb-4 min-h-[3.2rem] max-w-xl rounded-xl border-2 border-lemon-200/80 bg-[#0d1024]/90 px-4 py-2 text-center text-sm leading-relaxed text-lemon-100">
+              {log}
+            </div>
+
+            {phase === "battle" && current && (
+              <>
+                {/* Answer slots (drop target) */}
+                <div
+                  ref={boardRef}
+                  className="mx-auto mb-3 flex min-h-[3.2rem] max-w-2xl flex-wrap items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-lemon-200/60 bg-white/5 p-3"
+                >
+                  {slots.map((tile, i) => (
+                    <div
+                      key={i}
+                      data-slot-index={i}
+                      onPointerDown={(e) => {
+                        if (!tile) return;
+                        startDrag(e, tile, i, e.currentTarget.getBoundingClientRect());
+                      }}
+                      onClick={() => onSlotTileClick(i)}
+                      className={`flex h-11 min-w-[3rem] items-center justify-center rounded-lg border px-2 text-base font-medium ${
+                        tile
+                          ? `cursor-grab select-none border-lemon-300 bg-lemon-100 text-kanjibrown shadow active:cursor-grabbing ${
+                              drag?.key === tile.key ? "opacity-30" : ""
+                            }`
+                          : "border-lemon-200/50 bg-transparent text-transparent"
+                      }`}
+                    >
+                      {tile ? tile.text : "・"}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mb-3 flex justify-center">
+                  <button
+                    type="button"
+                    disabled={!allFilled}
+                    onClick={handleCast}
+                    className="btn-press rounded-full bg-gradient-to-b from-lemon-200 to-lemon-300 px-6 py-2 text-sm font-bold text-kanjibrown shadow disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    ✨ 呪文をとなえる！
+                  </button>
+                  {slots.some((s) => s != null) && (
+                    <button
+                      type="button"
+                      onClick={returnAllToBank}
+                      className="btn-press ml-2 rounded-full border border-lemon-200/60 px-4 py-2 text-xs font-semibold text-lemon-100 hover:bg-white/10"
+                    >
+                      やりなおす
+                    </button>
+                  )}
+                </div>
+
+                {/* Tile bank (drag source) */}
+                <div
+                  data-bank-area
+                  className="mx-auto flex min-h-[3.4rem] max-w-2xl flex-wrap items-center justify-center gap-2 rounded-2xl bg-white/5 p-3"
+                >
+                  {bank.length === 0 && (
+                    <p className="text-xs text-lemon-200/70">（ぜんぶ　ならべた）</p>
+                  )}
+                  {bank.map((tile) => (
+                    <BankTile
+                      key={tile.key}
+                      tile={tile}
+                      dimmed={drag?.key === tile.key}
+                      onClick={onBankTileClick}
+                      onStartDrag={startDrag}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {phase === "result" && current && (
+              <div className="text-center">
+                <p
+                  className={`mb-2 animate-pop-in text-lg font-bold ${
+                    lastOutcome === "success" ? "text-leaf-300" : "text-red-300"
+                  }`}
+                >
+                  {lastOutcome === "success" ? "せいかい！" : "ざんねん…"}
+                </p>
+                <p className="mb-3 text-sm text-lemon-100">{sentenceText(current)}</p>
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="btn-press rounded-full bg-sand-600 px-5 py-2 text-sm font-semibold text-sand-50 hover:brightness-95"
+                >
+                  つぎの じゅもんへ →
+                </button>
+              </div>
+            )}
+          </div>
+
+          {phase === "victory" && (
+            <div className="mx-auto mt-4 max-w-md animate-pop-in space-y-4 rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center shadow-card">
+              <p className="text-2xl">🏆</p>
+              <p className="text-lg font-bold text-sand-700">てきを　たおした！　しょうり！</p>
+              <p className="text-sand-600">Chiến thắng! Bạn đã đánh bại quái vật bằng phép thuật ngữ pháp.</p>
+              <button
+                type="button"
+                onClick={startBattle}
+                className="btn-press rounded-full bg-sand-600 px-5 py-2 text-sm font-semibold text-sand-50 hover:brightness-95"
+              >
+                もういちど たたかう
+              </button>
+            </div>
+          )}
+
+          {phase === "defeat" && (
+            <div className="mx-auto mt-4 max-w-md animate-pop-in space-y-4 rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center shadow-card">
+              <p className="text-2xl">💀</p>
+              <p className="text-lg font-bold text-sand-700">やられてしまった…</p>
+              <p className="text-sand-600">Thua rồi! Ôn lại câu mẫu rồi thử lại nhé.</p>
+              <button
+                type="button"
+                onClick={startBattle}
+                className="btn-press rounded-full bg-sand-600 px-5 py-2 text-sm font-semibold text-sand-50 hover:brightness-95"
+              >
+                もういちど たたかう
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Floating drag ghost */}
+      {drag && (
+        <div
+          className="pointer-events-none fixed z-50 flex h-11 min-w-[3rem] items-center justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 text-base font-medium text-kanjibrown shadow-lg"
+          style={{ left: drag.x - drag.offsetX, top: drag.y - drag.offsetY }}
+        >
+          {drag.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BankTile({
+  tile,
+  dimmed,
+  onClick,
+  onStartDrag,
+}: {
+  tile: Tile;
+  dimmed?: boolean;
+  onClick: (tile: Tile) => void;
+  onStartDrag: (e: React.PointerEvent, tile: Tile, from: "bank" | number, rect: DOMRect) => void;
+}) {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onPointerDown={(e) => {
+        if (!ref.current) return;
+        onStartDrag(e, tile, "bank", ref.current.getBoundingClientRect());
+      }}
+      onClick={() => onClick(tile)}
+      className={`btn-press flex h-11 min-w-[3rem] cursor-grab select-none items-center justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 text-base font-medium text-kanjibrown shadow active:cursor-grabbing ${
+        dimmed ? "opacity-30" : ""
+      }`}
+    >
+      {tile.text}
+    </button>
+  );
+}

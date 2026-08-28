@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: #f6f0e4; /* sand-100 */
+}
+
+/* Pressed-in effect for buttons across the app. */
+.btn-press {
+  transition: transform 0.08s ease-out, filter 0.15s ease-out, background-color 0.15s ease-out;
+}
+.btn-press:active {
+  transform: scale(0.94);
+}
