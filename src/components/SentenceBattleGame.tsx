@@ -15,13 +15,15 @@ const PLAYER_MAX_HP = 3;
 const BGM_SRC = "/audio/enemy_bgm.mp3";
 const BGM_VOLUME = 0.5;
 
+const DEFAULT_LANG: Lang = "vi";
+
 function loadStoredLang(): Lang {
-  if (typeof window === "undefined") return "ja";
+  if (typeof window === "undefined") return DEFAULT_LANG;
   try {
     const stored = window.localStorage.getItem(LANG_STORAGE_KEY);
-    return stored === "vi" ? "vi" : "ja";
+    return stored === "ja" || stored === "vi" ? stored : DEFAULT_LANG;
   } catch {
-    return "ja";
+    return DEFAULT_LANG;
   }
 }
 
@@ -98,7 +100,7 @@ function logText(state: LogState, t: (typeof STRINGS)["ja"]): string {
 }
 
 export default function SentenceBattleGame() {
-  const [lang, setLang] = useState<Lang>("ja");
+  const [lang, setLang] = useState<Lang>(DEFAULT_LANG);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const t = STRINGS[lang];
 
