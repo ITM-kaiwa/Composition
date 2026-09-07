@@ -18,3 +18,15 @@ body {
 .btn-press:active {
   transform: scale(0.94);
 }
+
+/* Furigana on the sentence-battle game's word tiles (SentenceBattleGame.tsx). */
+ruby {
+  ruby-position: over;
+}
+rt {
+  font-size: 0.55em;
+  line-height: 1.4;
+  font-weight: 400;
+  opacity: 0.8;
+  user-select: none;
+}

@@ -6,14 +6,13 @@ import {
   MINNA_SENTENCES,
   sentenceText,
   type SentenceEntry,
+  type SentenceFuri,
 } from "@/lib/sentenceBattleData";
 import { downloadSentenceList } from "@/lib/downloadSentenceList";
 import { LANG_STORAGE_KEY, STRINGS, type Lang } from "@/lib/i18n";
 
 const TOTAL_ROUNDS = 5;
 const PLAYER_MAX_HP = 3;
-const BGM_SRC = "/audio/enemy_bgm.mp3";
-const BGM_VOLUME = 0.5;
 
 const DEFAULT_LANG: Lang = "vi";
 
@@ -56,10 +55,27 @@ function shuffle<T>(arr: T[]): T[] {
 interface Tile {
   key: string;
   text: string;
+  furi: SentenceFuri | null;
 }
 
 function buildTiles(entry: SentenceEntry): Tile[] {
-  return entry.tiles.map((text, i) => ({ key: `${entry.id}-${i}`, text }));
+  return entry.tiles.map((tile, i) => ({ key: `${entry.id}-${i}`, text: tile.text, furi: tile.furi }));
+}
+
+/** Renders a tile's text, annotated with furigana (via <ruby>/<rt>) over the
+ * kanji-bearing part only, when the tile carries a furi breakdown. */
+function TileLabel({ text, furi }: { text: string; furi: SentenceFuri | null }) {
+  if (!furi) return <>{text}</>;
+  return (
+    <>
+      {furi.prefix}
+      <ruby>
+        {furi.kanji}
+        <rt>{furi.reading}</rt>
+      </ruby>
+      {furi.suffix}
+    </>
+  );
 }
 
 type Phase = "battle" | "result" | "victory" | "defeat";
@@ -67,6 +83,7 @@ type Phase = "battle" | "result" | "victory" | "defeat";
 interface DragInfo {
   key: string;
   text: string;
+  furi: SentenceFuri | null;
   x: number;
   y: number;
   startX: number;
@@ -134,41 +151,6 @@ export default function SentenceBattleGame() {
   const [drag, setDrag] = useState<DragInfo | null>(null);
   const dragRef = useRef<DragInfo | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
-
-  // Battle BGM: plays for as long as an enemy encounter is active ("battle"
-  // or "result" phase, i.e. between startBattle and victory/defeat), and
-  // pauses once the encounter ends. Browsers block audio.play() before any
-  // user gesture, so a failed autoplay attempt is silently retried on the
-  // player's first tap/click anywhere on the page.
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  useEffect(() => {
-    const audio = new Audio(BGM_SRC);
-    audio.loop = true;
-    audio.volume = BGM_VOLUME;
-    audioRef.current = audio;
-    return () => {
-      audio.pause();
-      audioRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (phase === "battle" || phase === "result") {
-      const playPromise = audio.play();
-      if (playPromise) {
-        playPromise.catch(() => {
-          const retry = () => {
-            audio.play().catch(() => {});
-          };
-          window.addEventListener("pointerdown", retry, { once: true });
-        });
-      }
-    } else {
-      audio.pause();
-    }
-  }, [phase]);
 
   const pool = useMemo(() => {
     if (lessonChoice === 0) return MINNA_SENTENCES;
@@ -284,7 +266,7 @@ export default function SentenceBattleGame() {
 
       if (!moved) return; // treated as a click/tap; the element's own onClick handles it
 
-      const tile: Tile = { key: d.key, text: d.text };
+      const tile: Tile = { key: d.key, text: d.text, furi: d.furi };
       if (overBank) {
         if (d.from !== "bank") {
           setSlots((prev) => {
@@ -305,6 +287,7 @@ export default function SentenceBattleGame() {
     const info: DragInfo = {
       key: tile.key,
       text: tile.text,
+      furi: tile.furi,
       x: e.clientX,
       y: e.clientY,
       startX: e.clientX,
@@ -349,7 +332,7 @@ export default function SentenceBattleGame() {
   function handleCast() {
     if (!current || !allFilled) return;
     const built = slots.map((s) => s!.text);
-    const correct = built.join("") === current.tiles.join("");
+    const correct = built.join("") === current.tiles.map((t) => t.text).join("");
 
     if (correct) {
       const nextHp = Math.max(0, enemyHp - 1);
@@ -502,7 +485,7 @@ export default function SentenceBattleGame() {
                         startDrag(e, tile, i, e.currentTarget.getBoundingClientRect());
                       }}
                       onClick={() => onSlotTileClick(i)}
-                      className={`flex h-11 min-w-[3rem] items-center justify-center rounded-lg border px-2 text-base font-medium ${
+                      className={`flex h-16 min-w-[3rem] items-center justify-center rounded-lg border px-2 pt-2 text-base font-medium leading-none ${
                         tile
                           ? `cursor-grab select-none border-lemon-300 bg-lemon-100 text-kanjibrown shadow active:cursor-grabbing ${
                               drag?.key === tile.key ? "opacity-30" : ""
@@ -510,7 +493,7 @@ export default function SentenceBattleGame() {
                           : "border-lemon-200/50 bg-transparent text-transparent"
                       }`}
                     >
-                      {tile ? tile.text : "・"}
+                      {tile ? <TileLabel text={tile.text} furi={tile.furi} /> : "・"}
                     </div>
                   ))}
                 </div>
@@ -612,10 +595,10 @@ export default function SentenceBattleGame() {
       {/* Floating drag ghost */}
       {drag && (
         <div
-          className="pointer-events-none fixed z-50 flex h-11 min-w-[3rem] items-center justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 text-base font-medium text-kanjibrown shadow-lg"
+          className="pointer-events-none fixed z-50 flex h-16 min-w-[3rem] items-center justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 pt-2 text-base font-medium leading-none text-kanjibrown shadow-lg"
           style={{ left: drag.x - drag.offsetX, top: drag.y - drag.offsetY }}
         >
-          {drag.text}
+          <TileLabel text={drag.text} furi={drag.furi} />
         </div>
       )}
     </div>
@@ -643,11 +626,11 @@ function BankTile({
         onStartDrag(e, tile, "bank", ref.current.getBoundingClientRect());
       }}
       onClick={() => onClick(tile)}
-      className={`btn-press flex h-11 min-w-[3rem] cursor-grab select-none items-center justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 text-base font-medium text-kanjibrown shadow active:cursor-grabbing ${
+      className={`btn-press flex h-16 min-w-[3rem] cursor-grab select-none items-center justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 pt-2 text-base font-medium leading-none text-kanjibrown shadow active:cursor-grabbing ${
         dimmed ? "opacity-30" : ""
       }`}
     >
-      {tile.text}
+      <TileLabel text={tile.text} furi={tile.furi} />
     </button>
   );
 }
