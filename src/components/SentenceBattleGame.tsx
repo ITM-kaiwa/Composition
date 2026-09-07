@@ -493,7 +493,7 @@ export default function SentenceBattleGame() {
               >
                 {enemy.emoji}
               </div>
-              <div className="mt-2 h-3 w-56 overflow-hidden rounded-full bg-black/40">
+              <div className="mt-5 h-3 w-56 overflow-hidden rounded-full bg-black/40">
                 <div
                   className="h-full bg-gradient-to-r from-leaf-400 to-leaf-300 transition-all duration-300"
                   style={{ width: `${enemyHpPct}%` }}
@@ -522,7 +522,7 @@ export default function SentenceBattleGame() {
                         startDrag(e, tile, i, e.currentTarget.getBoundingClientRect());
                       }}
                       onClick={() => onSlotTileClick(i)}
-                      className={`flex h-16 min-w-[3rem] whitespace-nowrap items-end justify-center rounded-lg border px-2 pb-1.5 pt-2 text-base font-medium leading-none ${
+                      className={`flex h-14 min-w-[3rem] whitespace-nowrap items-end justify-center rounded-lg border px-2 pb-1 pt-1 text-base font-medium leading-none ${
                         tile
                           ? `cursor-grab select-none border-lemon-300 bg-lemon-100 text-kanjibrown shadow active:cursor-grabbing ${
                               drag?.key === tile.key ? "opacity-30" : ""
@@ -636,7 +636,7 @@ export default function SentenceBattleGame() {
       {/* Floating drag ghost */}
       {drag && (
         <div
-          className="pointer-events-none fixed z-50 flex h-16 min-w-[3rem] whitespace-nowrap items-end justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 pb-1.5 pt-2 text-base font-medium leading-none text-kanjibrown shadow-lg"
+          className="pointer-events-none fixed z-50 flex h-14 min-w-[3rem] whitespace-nowrap items-end justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 pb-1 pt-1 text-base font-medium leading-none text-kanjibrown shadow-lg"
           style={{ left: drag.x - drag.offsetX, top: drag.y - drag.offsetY }}
         >
           <TileLabel text={drag.text} furi={drag.furi} />
@@ -667,7 +667,7 @@ function BankTile({
         onStartDrag(e, tile, "bank", ref.current.getBoundingClientRect());
       }}
       onClick={() => onClick(tile)}
-      className={`btn-press flex h-16 min-w-[3rem] whitespace-nowrap cursor-grab select-none items-end justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 pb-1.5 pt-2 text-base font-medium leading-none text-kanjibrown shadow active:cursor-grabbing ${
+      className={`btn-press flex h-14 min-w-[3rem] whitespace-nowrap cursor-grab select-none items-end justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 pb-1 pt-1 text-base font-medium leading-none text-kanjibrown shadow active:cursor-grabbing ${
         dimmed ? "opacity-30" : ""
       }`}
     >
