@@ -601,33 +601,24 @@ export default function SentenceBattleGame() {
             )}
           </div>
 
-          {phase === "victory" && (
-            <div className="mx-auto mt-4 max-w-md animate-pop-in space-y-4 rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center shadow-card">
-              <p className="text-2xl">🏆</p>
-              <p className="text-lg font-bold text-sand-700">{t.victoryTitle}</p>
-              <p className="text-sand-600">{t.victorySubtitle}</p>
-              <button
-                type="button"
-                onClick={startBattle}
-                className="btn-press rounded-full bg-sand-600 px-5 py-2 text-sm font-semibold text-sand-50 hover:brightness-95"
-              >
-                {t.fightAgainButton}
-              </button>
-            </div>
-          )}
-
-          {phase === "defeat" && (
-            <div className="mx-auto mt-4 max-w-md animate-pop-in space-y-4 rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center shadow-card">
-              <p className="text-2xl">💀</p>
-              <p className="text-lg font-bold text-sand-700">{t.defeatTitle}</p>
-              <p className="text-sand-600">{t.defeatSubtitle}</p>
-              <button
-                type="button"
-                onClick={startBattle}
-                className="btn-press rounded-full bg-sand-600 px-5 py-2 text-sm font-semibold text-sand-50 hover:brightness-95"
-              >
-                {t.fightAgainButton}
-              </button>
+          {(phase === "victory" || phase === "defeat") && (
+            <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
+              <div className="w-full max-w-md animate-pop-in space-y-4 rounded-2xl border border-sand-300 bg-sand-50 p-8 text-center shadow-card">
+                <p className="text-2xl">{phase === "victory" ? "🏆" : "💀"}</p>
+                <p className="text-lg font-bold text-sand-700">
+                  {phase === "victory" ? t.victoryTitle : t.defeatTitle}
+                </p>
+                <p className="text-sand-600">
+                  {phase === "victory" ? t.victorySubtitle : t.defeatSubtitle}
+                </p>
+                <button
+                  type="button"
+                  onClick={startBattle}
+                  className="btn-press rounded-full bg-sand-600 px-5 py-2 text-sm font-semibold text-sand-50 hover:brightness-95"
+                >
+                  {t.fightAgainButton}
+                </button>
+              </div>
             </div>
           )}
         </>
