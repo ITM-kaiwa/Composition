@@ -13,6 +13,8 @@ import { LANG_STORAGE_KEY, STRINGS, type Lang } from "@/lib/i18n";
 
 const TOTAL_ROUNDS = 5;
 const PLAYER_MAX_HP = 3;
+const BGM_SRC = "/audio/enemy_bgm.mp3";
+const BGM_VOLUME = 0.5;
 
 const DEFAULT_LANG: Lang = "vi";
 
@@ -151,6 +153,41 @@ export default function SentenceBattleGame() {
   const [drag, setDrag] = useState<DragInfo | null>(null);
   const dragRef = useRef<DragInfo | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
+
+  // Battle BGM: plays for as long as an enemy encounter is active ("battle"
+  // or "result" phase, i.e. between startBattle and victory/defeat), and
+  // pauses once the encounter ends. Browsers block audio.play() before any
+  // user gesture, so a failed autoplay attempt is silently retried on the
+  // player's first tap/click anywhere on the page.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    const audio = new Audio(BGM_SRC);
+    audio.loop = true;
+    audio.volume = BGM_VOLUME;
+    audioRef.current = audio;
+    return () => {
+      audio.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (phase === "battle" || phase === "result") {
+      const playPromise = audio.play();
+      if (playPromise) {
+        playPromise.catch(() => {
+          const retry = () => {
+            audio.play().catch(() => {});
+          };
+          window.addEventListener("pointerdown", retry, { once: true });
+        });
+      }
+    } else {
+      audio.pause();
+    }
+  }, [phase]);
 
   const pool = useMemo(() => {
     if (lessonChoice === 0) return MINNA_SENTENCES;
@@ -485,7 +522,7 @@ export default function SentenceBattleGame() {
                         startDrag(e, tile, i, e.currentTarget.getBoundingClientRect());
                       }}
                       onClick={() => onSlotTileClick(i)}
-                      className={`flex h-16 min-w-[3rem] items-center justify-center rounded-lg border px-2 pt-2 text-base font-medium leading-none ${
+                      className={`flex h-16 min-w-[3rem] whitespace-nowrap items-end justify-center rounded-lg border px-2 pb-1.5 pt-2 text-base font-medium leading-none ${
                         tile
                           ? `cursor-grab select-none border-lemon-300 bg-lemon-100 text-kanjibrown shadow active:cursor-grabbing ${
                               drag?.key === tile.key ? "opacity-30" : ""
@@ -548,7 +585,11 @@ export default function SentenceBattleGame() {
                 >
                   {lastOutcome === "success" ? t.successLabel : t.failLabel}
                 </p>
-                <p className="mb-3 text-sm text-lemon-100">{sentenceText(current)}</p>
+                <p className="mb-3 px-4 pt-3 text-2xl font-medium leading-loose text-lemon-100 sm:text-3xl">
+                  {current.tiles.map((tile, i) => (
+                    <TileLabel key={i} text={tile.text} furi={tile.furi} />
+                  ))}
+                </p>
                 <button
                   type="button"
                   onClick={handleNext}
@@ -595,7 +636,7 @@ export default function SentenceBattleGame() {
       {/* Floating drag ghost */}
       {drag && (
         <div
-          className="pointer-events-none fixed z-50 flex h-16 min-w-[3rem] items-center justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 pt-2 text-base font-medium leading-none text-kanjibrown shadow-lg"
+          className="pointer-events-none fixed z-50 flex h-16 min-w-[3rem] whitespace-nowrap items-end justify-center rounded-lg border border-lemon-300 bg-lemon-100 px-2 pb-1.5 pt-2 text-base font-medium leading-none text-kanjibrown shadow-lg"
           style={{ left: drag.x - drag.offsetX, top: drag.y - drag.offsetY }}
         >
           <TileLabel text={drag.text} furi={drag.furi} />
@@ -626,7 +667,7 @@ function BankTile({
         onStartDrag(e, tile, "bank", ref.current.getBoundingClientRect());
       }}
       onClick={() => onClick(tile)}
-      className={`btn-press flex h-16 min-w-[3rem] cursor-grab select-none items-center justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 pt-2 text-base font-medium leading-none text-kanjibrown shadow active:cursor-grabbing ${
+      className={`btn-press flex h-16 min-w-[3rem] whitespace-nowrap cursor-grab select-none items-end justify-center rounded-lg border border-leaf-300 bg-leaf-100 px-2 pb-1.5 pt-2 text-base font-medium leading-none text-kanjibrown shadow active:cursor-grabbing ${
         dimmed ? "opacity-30" : ""
       }`}
     >

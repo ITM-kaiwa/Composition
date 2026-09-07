@@ -121,10 +121,22 @@ function buildFuri(surface, readingHiragana) {
   };
 }
 
+// kuromoji tokenizes each word in isolation from IPADIC, so "何" comes back
+// with its dictionary-default reading "なに" even when it precedes a counter
+// or time word where native speakers always say "なん" (何曜日 -> なんようび,
+// not "なにようび") -- IPADIC doesn't carry these as single compound entries
+// the way it does for e.g. 金曜日. Override the reading in exactly that
+// context rather than trusting kuromoji's context-blind per-token default.
+const NANI_TO_NAN_TRIGGERS = [
+  "曜日", "時", "分", "秒", "年", "月", "日", "週間", "ヶ月", "か月",
+  "人", "台", "本", "冊", "枚", "匹", "頭", "羽", "回", "度", "語", "色", "歳", "才",
+];
+
 function tokenizeWithFurigana(tokenizer, text) {
   const rawTokens = tokenizer.tokenize(text);
   const tiles = [];
-  for (const tok of rawTokens) {
+  for (let i = 0; i < rawTokens.length; i++) {
+    const tok = rawTokens[i];
     const surface = tok.surface_form;
     if (!surface) continue;
     if (ATTACH_TO_PREVIOUS.has(surface) && tiles.length > 0) {
@@ -133,7 +145,13 @@ function tokenizeWithFurigana(tokenizer, text) {
       if (prev.furi) prev.furi.suffix += surface;
       continue;
     }
-    const readingHiragana = tok.reading ? katakanaToHiragana(tok.reading) : null;
+    let readingHiragana = tok.reading ? katakanaToHiragana(tok.reading) : null;
+    if (surface === "何") {
+      const next = rawTokens[i + 1]?.surface_form ?? "";
+      if (NANI_TO_NAN_TRIGGERS.some((trigger) => next.startsWith(trigger))) {
+        readingHiragana = "なん";
+      }
+    }
     tiles.push({ text: surface, furi: buildFuri(surface, readingHiragana) });
   }
   return tiles;
